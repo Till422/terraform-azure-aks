@@ -1,0 +1,19 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl.bak
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfplan
+tf.plan
+plan.txt
+
+# Secrets - niemals committen
+*.auto.tfvars
+secrets.tfvars
+.env
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/settings.json
