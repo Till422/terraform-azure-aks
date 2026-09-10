@@ -1,0 +1,169 @@
+# ---------------------------------------------------------------------------
+# Beispiel-Workload zum Nachweis, dass der Cluster funktioniert.
+# Zeigt: Requests/Limits, Probes, Anti-Affinity, PDB, Autoscaling,
+#        Workload Identity und Non-Root-Container.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+# Workload Identity: dieser ServiceAccount wird per Federated Credential
+# an eine Azure Managed Identity gebunden - keine Secrets im Cluster.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: demo-app
+  namespace: demo
+  annotations:
+    azure.workload.identity/client-id: "REPLACE_WITH_MANAGED_IDENTITY_CLIENT_ID"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  namespace: demo
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: demo-app
+  template:
+    metadata:
+      labels:
+        app: demo-app
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: demo-app
+
+      # Pods auf verschiedene Nodes verteilen - ein Node-Ausfall
+      # nimmt nicht alle Replicas mit.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: demo-app
+
+      # Auf dem apps-Pool landen, nicht auf dem System-Pool.
+      nodeSelector:
+        workload: apps
+      tolerations:
+        - key: kubernetes.azure.com/scalesetpriority
+          operator: Equal
+          value: spot
+          effect: NoSchedule
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: app
+          image: mcr.microsoft.com/azuredocs/aks-helloworld:v1
+          ports:
+            - containerPort: 80
+              name: http
+
+          # Ohne Requests kann der Scheduler nicht planen und der
+          # Cluster Autoscaler nicht skalieren.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi # kein CPU-Limit: vermeidet unnoetiges Throttling
+
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app
+  namespace: demo
+spec:
+  type: ClusterIP
+  selector:
+    app: demo-app
+  ports:
+    - port: 80
+      targetPort: http
+---
+# Schuetzt vor Totalausfall bei Node-Drain waehrend eines Cluster-Upgrades.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: demo-app
+  namespace: demo
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: demo-app
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: demo-app
+  namespace: demo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: demo-app
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# Default-Deny: nur expliziter Verkehr ist erlaubt.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: demo
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-controller
+  namespace: demo
+spec:
+  podSelector:
+    matchLabels:
+      app: demo-app
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 80
