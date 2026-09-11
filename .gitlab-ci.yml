@@ -1,0 +1,146 @@
+# ---------------------------------------------------------------------------
+# GitLab CI: Terraform-Workflow mit OIDC-Auth (keine Secrets im Repo).
+#   MR      -> validate, lint, security-scan, plan (als Kommentar)
+#   main    -> apply dev automatisch, apply prod nur manuell
+# ---------------------------------------------------------------------------
+
+image:
+  name: hashicorp/terraform:1.16
+  entrypoint: [""]
+
+variables:
+  # Workload Identity Federation - kein ARM_CLIENT_SECRET noetig.
+  ARM_USE_OIDC: "true"
+  ARM_USE_AZUREAD: "true" # Backend-Zugriff per Entra ID
+  ARM_CLIENT_ID: $AZURE_CLIENT_ID
+  ARM_TENANT_ID: $AZURE_TENANT_ID
+  ARM_SUBSCRIPTION_ID: $AZURE_SUBSCRIPTION_ID
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+id_tokens:
+  ARM_OIDC_TOKEN:
+    aud: api://AzureADTokenExchange
+
+stages:
+  - verify
+  - plan
+  - apply
+
+.terraform_base:
+  before_script:
+    - cd "envs/${ENVIRONMENT}"
+    - terraform init -input=false
+  cache:
+    key: "$CI_COMMIT_REF_SLUG-$ENVIRONMENT"
+    paths:
+      - envs/${ENVIRONMENT}/.terraform
+
+# --- Verify: laeuft ohne Cloud-Zugriff, daher schnell und billig ----------
+
+fmt:
+  stage: verify
+  script:
+    - terraform fmt -check -recursive -diff
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+validate:
+  stage: verify
+  parallel:
+    matrix:
+      - ENVIRONMENT: [dev, prod]
+  script:
+    - cd "envs/${ENVIRONMENT}"
+    - terraform init -backend=false
+    - terraform validate
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+tflint:
+  stage: verify
+  image:
+    name: ghcr.io/terraform-linters/tflint:latest
+    entrypoint: [""]
+  script:
+    - tflint --init
+    - tflint --recursive --format compact
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+checkov:
+  stage: verify
+  image:
+    name: bridgecrew/checkov:latest
+    entrypoint: [""]
+  script:
+    - checkov -d . --framework terraform --compact --quiet
+  allow_failure: true # zunaechst warnend, spaeter blockierend
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+# --- Plan: Ergebnis wird als Artefakt gespeichert -------------------------
+
+.plan_template:
+  extends: .terraform_base
+  stage: plan
+  script:
+    - terraform plan -input=false -out=tf.plan
+    - terraform show -no-color tf.plan > plan.txt
+    # Kompakte Zusammenfassung fuer den MR-Kommentar
+    - terraform show -json tf.plan > plan.json
+  artifacts:
+    paths:
+      - envs/${ENVIRONMENT}/tf.plan
+      - envs/${ENVIRONMENT}/plan.txt
+    expire_in: 7 days
+    when: always
+
+plan:dev:
+  extends: .plan_template
+  variables:
+    ENVIRONMENT: dev
+  environment:
+    name: dev
+    action: prepare
+
+plan:prod:
+  extends: .plan_template
+  variables:
+    ENVIRONMENT: prod
+  environment:
+    name: prod
+    action: prepare
+
+# --- Apply: nur von main, prod mit manuellem Gate -------------------------
+
+apply:dev:
+  extends: .terraform_base
+  stage: apply
+  variables:
+    ENVIRONMENT: dev
+  needs: ["plan:dev"]
+  # Exakt der reviewte Plan wird angewendet - nicht neu berechnet.
+  script:
+    - terraform apply -input=false tf.plan
+  environment:
+    name: dev
+    url: https://dev.example.com
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+apply:prod:
+  extends: .terraform_base
+  stage: apply
+  variables:
+    ENVIRONMENT: prod
+  needs: ["plan:prod", "apply:dev"]
+  script:
+    - terraform apply -input=false tf.plan
+  environment:
+    name: prod
+    url: https://example.com
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual # Vier-Augen-Prinzip fuer Produktion
+      allow_failure: false
