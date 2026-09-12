@@ -1,0 +1,132 @@
+# ---------------------------------------------------------------------------
+# Azure DevOps: gleicher Workflow wie die GitLab-Pipeline.
+# Auth ueber Workload Identity Federation in der Service Connection.
+# ---------------------------------------------------------------------------
+
+trigger:
+  branches:
+    include: [main]
+  paths:
+    include: [modules/*, envs/*]
+
+pr:
+  branches:
+    include: [main]
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - name: terraformVersion
+    value: 1.16.2
+  - group: terraform-backend # Variable Group mit Key-Vault-Anbindung
+
+stages:
+  # -------------------------------------------------------------------------
+  - stage: Verify
+    displayName: Format, Lint & Security
+    jobs:
+      - job: Static
+        steps:
+          - task: TerraformInstaller@1
+            inputs:
+              terraformVersion: $(terraformVersion)
+
+          - script: terraform fmt -check -recursive -diff
+            displayName: Format pruefen
+
+          - script: |
+              curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+              tflint --recursive --format compact
+            displayName: TFLint
+
+          - script: |
+              pip install checkov
+              checkov -d . --framework terraform --compact --quiet
+            displayName: Checkov Security-Scan
+            continueOnError: true
+
+  # -------------------------------------------------------------------------
+  - stage: Plan
+    dependsOn: Verify
+    jobs:
+      - job: PlanAll
+        strategy:
+          matrix:
+            dev:
+              envName: dev
+            prod:
+              envName: prod
+        steps:
+          - task: TerraformInstaller@1
+            inputs:
+              terraformVersion: $(terraformVersion)
+
+          - task: TerraformTaskV4@4
+            displayName: Init
+            inputs:
+              command: init
+              workingDirectory: envs/$(envName)
+              backendServiceArm: sc-azure-$(envName) # Workload Identity
+              backendAzureRmResourceGroupName: rg-tfstate
+              backendAzureRmStorageAccountName: $(stateStorageAccount)
+              backendAzureRmContainerName: tfstate
+              backendAzureRmKey: $(envName).tfstate
+
+          - task: TerraformTaskV4@4
+            displayName: Plan
+            inputs:
+              command: plan
+              workingDirectory: envs/$(envName)
+              environmentServiceNameAzureRM: sc-azure-$(envName)
+              commandOptions: -input=false -out=$(Build.ArtifactStagingDirectory)/$(envName).tfplan
+
+          - publish: $(Build.ArtifactStagingDirectory)
+            artifact: plan-$(envName)
+
+  # -------------------------------------------------------------------------
+  - stage: ApplyDev
+    dependsOn: Plan
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: Dev
+        environment: dev # Approvals/Checks im Environment konfiguriert
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: plan-dev
+                - task: TerraformInstaller@1
+                  inputs:
+                    terraformVersion: $(terraformVersion)
+                - task: TerraformTaskV4@4
+                  inputs:
+                    command: apply
+                    workingDirectory: envs/dev
+                    environmentServiceNameAzureRM: sc-azure-dev
+                    commandOptions: $(Pipeline.Workspace)/plan-dev/dev.tfplan
+
+  # -------------------------------------------------------------------------
+  - stage: ApplyProd
+    dependsOn: ApplyDev
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: Prod
+        # Das Environment "prod" traegt das Approval-Gate.
+        environment: prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: plan-prod
+                - task: TerraformInstaller@1
+                  inputs:
+                    terraformVersion: $(terraformVersion)
+                - task: TerraformTaskV4@4
+                  inputs:
+                    command: apply
+                    workingDirectory: envs/prod
+                    environmentServiceNameAzureRM: sc-azure-prod
+                    commandOptions: $(Pipeline.Workspace)/plan-prod/prod.tfplan
