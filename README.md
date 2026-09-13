@@ -1,8 +1,6 @@
-# Azure AKS Platform — Terraform Referenzprojekt
+# Azure AKS Platform — Terraform
 
-Produktionsnahe Infrastructure-as-Code-Referenz für eine containerisierte
-Plattform auf Azure. Zwei Umgebungen, wiederverwendbare Module, vollständige
-CI/CD-Automatisierung — ohne ein einziges langlebiges Secret.
+Infrastructure für eine containerisierte Plattform auf Azure. Zwei Umgebungen, wiederverwendbare Module, vollständige CI/CD-Automatisierung.
 
 ---
 
@@ -36,7 +34,6 @@ CI/CD-Automatisierung — ohne ein einziges langlebiges Secret.
 └─────────────────────────────────────────────────────────────┘
 ```
 
----
 
 ## Aufbau
 
@@ -111,22 +108,6 @@ kubectl get pods -n demo -w
 
 ```bash
 terraform destroy
-```
-
----
-
-## Kosten
-
-Die Dev-Umgebung ist bewusst auf Minimalkosten ausgelegt: AKS Free-Tier
-(Control Plane kostenlos), ein `Standard_B2s`-Node im System-Pool, Spot-Nodes
-im App-Pool, ACR Basic, 30 Tage Log-Aufbewahrung.
-
-Größenordnung: **rund 60–80 € pro Monat bei Dauerbetrieb.** Für Lernzwecke
-lohnt sich `terraform destroy` nach jeder Sitzung — der Wiederaufbau dauert
-etwa 8 Minuten und kostet dann nur Cent-Beträge.
-
-Die Prod-Definition ist als Referenz gedacht und sollte nicht dauerhaft
-laufen (Standard-SKU, ACR Premium, 3× D4s_v5).
 
 ---
 
