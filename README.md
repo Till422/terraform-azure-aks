@@ -4,35 +4,10 @@ Infrastructure für eine containerisierte Plattform auf Azure. Zwei Umgebungen, 
 
 ---
 
-## Überblick
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Git Repository                                             │
-│    modules/  ──▶  wiederverwendbar, versioniert             │
-│    envs/     ──▶  dev + prod, getrennte States              │
-└────────────────────────┬────────────────────────────────────┘
-                         │  Merge Request
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  CI/CD  (GitLab CI  ·  Azure DevOps)                        │
-│    fmt → validate → tflint → checkov → plan                 │
-│    plan als Artefakt  ──▶  Review  ──▶  apply               │
-│    Auth: OIDC / Workload Identity Federation                │
-└────────────────────────┬────────────────────────────────────┘
-                         │  terraform apply
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Azure                                                      │
-│    VNet + Subnets + NSG (Default-Deny)                      │
-│    AKS  ·  Azure CNI Overlay  ·  Cilium NetworkPolicy       │
-│         ·  System-Pool + User-Pools (Spot, Autoscaling)     │
-│         ·  Workload Identity (OIDC)                         │
-│         ·  Key Vault CSI Driver                             │
-│    ACR (RBAC-Pull, kein Admin-Passwort)                     │
-│    Log Analytics + Container Insights                       │
-└─────────────────────────────────────────────────────────────┘
-```
+
+
+---
 
 
 ## Aufbau
