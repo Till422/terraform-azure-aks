@@ -100,15 +100,4 @@ gegen Azure gestartet wird.
 
 ---
 
-## Bewusst nicht enthalten
 
-Ehrlichkeit über Grenzen gehört zu einer Referenz dazu:
-
-- **Private Endpoints / privater API-Server** — im Übungs-Setup wäre der
-  Cluster dann nur noch über Bastion oder VPN erreichbar.
-- **Ingress-Controller und Zertifikate** — gehören in einen eigenen
-  App-State bzw. nach GitOps (ArgoCD/Flux), nicht in den Plattform-State.
-- **Availability Zones** — in `germanywestcentral` verfügbar, für die
-  Dev-Umgebung mit einem Node aber sinnlos.
-- **Backup/Restore (Velero)** — der logische nächste Schritt für den
-  Disaster-Recovery-Teil.
