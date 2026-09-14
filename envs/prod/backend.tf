@@ -12,7 +12,7 @@ terraform {
   # storage_account_name ist zufaellig - deshalb Platzhalter.
   backend "azurerm" {
     resource_group_name  = "rg-tfstate"
-    storage_account_name = "REPLACE_ME"
+    storage_account_name = "sttfstate4hmmg4"
     container_name       = "tfstate"
     key                  = "prod.tfstate"
     use_azuread_auth     = true
