@@ -10,7 +10,7 @@ variable "name_prefix" {
 
 variable "kubernetes_version" {
   type    = string
-  default = "1.32"
+  default = "1.35"
 }
 
 variable "admin_group_object_ids" {

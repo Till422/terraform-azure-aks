@@ -17,3 +17,7 @@ secrets.tfvars
 .DS_Store
 Thumbs.db
 .vscode/settings.json
+
+# Lokale kind-Umgebung
+local/.terraform/
+local/terraform.tfstate*
