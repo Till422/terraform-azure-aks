@@ -87,6 +87,7 @@ module "aks" {
   }
 
   acr_id                     = azurerm_container_registry.main.id
+  attach_acr                 = true
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   admin_group_object_ids     = var.admin_group_object_ids
   tags                       = local.tags

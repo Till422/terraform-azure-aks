@@ -97,3 +97,16 @@ variable "acr_id" {
   description = "Resource-ID der Container Registry. null = keine Anbindung."
   default     = null
 }
+
+variable "attach_acr" {
+  type        = bool
+  default     = false
+  description = <<-EOT
+    Ob dem Cluster die Rolle AcrPull auf var.acr_id gegeben wird.
+
+    Bewusst eine eigene Variable statt "acr_id != null": count und for_each
+    muessen zur Planzeit aufloesbar sein. Eine ID, die erst beim Apply
+    entsteht, ist es nicht - Terraform bricht sonst mit
+    "Invalid count argument" ab.
+  EOT
+}
