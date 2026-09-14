@@ -16,11 +16,20 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.12"
+    }
   }
 }
 
 provider "azurerm" {
   features {}
+
+  # Datenebene des Storage ueber Entra ID ansprechen statt ueber Account-Keys.
+  # Zwingend, weil unten shared_access_key_enabled = false gesetzt ist -
+  # sonst scheitert schon das Anlegen des Containers mit HTTP 403.
+  storage_use_azuread = true
 }
 
 variable "location" {
@@ -56,7 +65,7 @@ resource "azurerm_storage_account" "tfstate" {
 
   # Haerten: kein anonymer Zugriff, kein Shared Key
   allow_nested_items_to_be_public = false
-  shared_access_key_enabled       = false # erzwingt Azure-AD-Auth
+  shared_access_key_enabled       = false # erzwingt Entra-ID-Auth
   public_network_access_enabled   = true  # Uebung; produktiv: Private Endpoint
 
   blob_properties {
@@ -74,13 +83,7 @@ resource "azurerm_storage_account" "tfstate" {
   tags = azurerm_resource_group.tfstate.tags
 }
 
-resource "azurerm_storage_container" "tfstate" {
-  name                  = "tfstate"
-  storage_account_id    = azurerm_storage_account.tfstate.id
-  container_access_type = "private"
-}
-
-# Der ausfuehrende Benutzer braucht Datenebenen-Rechte,
+# Der ausfuehrende Benutzer braucht Rechte auf der Datenebene,
 # da shared_access_key_enabled = false gesetzt ist.
 data "azurerm_client_config" "current" {}
 
@@ -88,6 +91,22 @@ resource "azurerm_role_assignment" "tfstate_contributor" {
   scope                = azurerm_storage_account.tfstate.id
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = data.azurerm_client_config.current.object_id
+}
+
+# Rollenzuweisungen brauchen in Entra ID bis zu einigen Minuten, bis sie
+# auf der Datenebene wirksam sind. Ohne diese Wartezeit scheitert das
+# Anlegen des Containers mit HTTP 403 - ein klassischer Wettlauf.
+resource "time_sleep" "rbac_propagation" {
+  depends_on      = [azurerm_role_assignment.tfstate_contributor]
+  create_duration = "90s"
+}
+
+resource "azurerm_storage_container" "tfstate" {
+  name                  = "tfstate"
+  storage_account_id    = azurerm_storage_account.tfstate.id
+  container_access_type = "private"
+
+  depends_on = [time_sleep.rbac_propagation]
 }
 
 output "backend_config" {
@@ -104,4 +123,9 @@ output "backend_config" {
       }
     }
   EOT
+}
+
+output "storage_account_name" {
+  description = "Name des erzeugten Storage Accounts."
+  value       = azurerm_storage_account.tfstate.name
 }
