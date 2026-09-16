@@ -45,7 +45,7 @@ resource "helm_release" "metrics_server" {
   name       = "metrics-server"
   repository = "https://kubernetes-sigs.github.io/metrics-server/"
   chart      = "metrics-server"
-  version    = "3.12.2"
+  version    = "3.14.0"
   namespace  = "kube-system"
 
   set {
@@ -59,7 +59,7 @@ resource "helm_release" "ingress_nginx" {
   name             = "ingress-nginx"
   repository       = "https://kubernetes.github.io/ingress-nginx"
   chart            = "ingress-nginx"
-  version          = "4.11.3"
+  version          = "4.15.1"
   namespace        = "ingress-nginx"
   create_namespace = true
 
@@ -68,22 +68,30 @@ resource "helm_release" "ingress_nginx" {
     name  = "controller.service.type"
     value = "NodePort"
   }
+
   set {
     name  = "controller.hostPort.enabled"
     value = "true"
   }
+
+  # type = "string" ist zwingend: Helm wuerde "true" sonst als Boolean
+  # deuten, nodeSelector-Werte muessen aber Zeichenketten sein.
   set {
     name  = "controller.nodeSelector.ingress-ready"
     value = "true"
+    type  = "string"
   }
+
   set {
     name  = "controller.tolerations[0].key"
     value = "node-role.kubernetes.io/control-plane"
   }
+
   set {
     name  = "controller.tolerations[0].operator"
     value = "Exists"
   }
+
   set {
     name  = "controller.tolerations[0].effect"
     value = "NoSchedule"
@@ -91,6 +99,9 @@ resource "helm_release" "ingress_nginx" {
 }
 
 # --- Namespace --------------------------------------------------------------
+# Das Label erzwingt den Pod Security Standard "restricted": Container muessen
+# als Nicht-Root laufen, duerfen keine Rechte eskalieren und keine Capabilities
+# behalten. Verstoesse werden beim Erzeugen des Pods abgelehnt.
 resource "kubernetes_namespace" "demo" {
   metadata {
     name = var.namespace
@@ -182,7 +193,13 @@ resource "kubernetes_deployment" "demo" {
             period_seconds        = 5
           }
 
+          # run_as_non_root muss auch hier stehen: Der Provider schreibt sonst
+          # runAsNonRoot=false in den Container-Kontext, und der Pod Security
+          # Standard "restricted" lehnt den Pod ab - auch wenn der Pod-Kontext
+          # darueber bereits true sagt.
           security_context {
+            run_as_non_root            = true
+            run_as_user                = 101
             allow_privilege_escalation = false
             capabilities {
               drop = ["ALL"]
