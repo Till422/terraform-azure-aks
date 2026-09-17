@@ -34,7 +34,7 @@ Infrastructure für eine containerisierte Plattform auf Azure. Zwei Umgebungen, 
 | **`ignore_changes` auf `node_count`** | Der Cluster Autoscaler verändert die Node-Zahl zur Laufzeit; Terraform darf das nicht zurückdrehen. |
 
 ---
-
+ 
 ## Inbetriebnahme
 
 ```bash
