@@ -69,7 +69,7 @@ module "aks" {
   sku_tier            = "Free" # dev braucht kein SLA
 
   default_node_pool = {
-    vm_size    = "Standard_B2s" # 2 vCPU, 4 GB - guenstigster brauchbarer Node
+    vm_size    = "Standard_D2as_v6" # 2 vCPU, 8 GB - Familie mit Kontingent
     min_count  = 1
     max_count  = 2
     os_disk_gb = 32
@@ -77,12 +77,13 @@ module "aks" {
 
   user_node_pools = {
     apps = {
-      vm_size     = "Standard_B2s"
-      min_count   = 1
-      max_count   = 3
-      spot        = true # dev vertraegt Unterbrechungen
+      vm_size   = "Standard_D2als_v6" # 2 vCPU, 4 GB
+      min_count = 1
+      max_count = 3
+      # Spot vorerst aus: das Low-Priority-Kontingent des Abos ist knapp
+      # (3 vCPUs). Wieder einschalten, sobald der Cluster einmal steht.
+      spot        = false
       node_labels = { workload = "apps" }
-      node_taints = ["kubernetes.azure.com/scalesetpriority=spot:NoSchedule"]
     }
   }
 
@@ -91,4 +92,23 @@ module "aks" {
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   admin_group_object_ids     = var.admin_group_object_ids
   tags                       = local.tags
+}
+
+# ---------------------------------------------------------------------------
+# Zugriff auf die Datenebene des Clusters.
+#
+# Mit azure_rbac_enabled = true prueft AKS jede kubectl-Anfrage gegen Entra ID.
+# Besitzerrechte auf dem Abonnement genuegen dafuer NICHT - die Datenebene
+# verlangt eine eigene Rollenzuweisung. Ohne sie antwortet der Cluster auf
+# jedes kubectl mit "Forbidden ... User does not have access to the resource".
+#
+# Bewusst hier und nicht von Hand gesetzt: Was per Klick entsteht, ist beim
+# naechsten Aufbau wieder weg.
+# ---------------------------------------------------------------------------
+data "azurerm_client_config" "current" {}
+
+resource "azurerm_role_assignment" "aks_cluster_admin" {
+  scope                = module.aks.cluster_id
+  role_definition_name = "Azure Kubernetes Service RBAC Cluster Admin"
+  principal_id         = data.azurerm_client_config.current.object_id
 }
