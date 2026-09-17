@@ -59,15 +59,15 @@ spec:
 
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65532
+        runAsUser: 101
         seccompProfile:
           type: RuntimeDefault
 
       containers:
         - name: app
-          image: mcr.microsoft.com/azuredocs/aks-helloworld:v1
+          image: nginxinc/nginx-unprivileged:1.27-alpine
           ports:
-            - containerPort: 80
+            - containerPort: 8080
               name: http
 
           # Ohne Requests kann der Scheduler nicht planen und der
@@ -89,6 +89,8 @@ spec:
             periodSeconds: 5
 
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
             capabilities:
